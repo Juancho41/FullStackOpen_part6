@@ -8,6 +8,7 @@ const api = supertest(app)
 const Blog = require('../models/blog')
 const bcrypt = require('bcrypt')
 const User = require('../models/user')
+const { response } = require('../app')
 
 
 
@@ -48,80 +49,163 @@ test('the unique identifier property of the blog posts is named id', async () =>
     expect(response.body[0].id).toBeDefined()
 })
 
-test('making an HTTP POST request to the /api/blogs url creates a new blog post', async () => {
-    newBlog = {
-        title: 'test blog',
-        author: 'Juan',
-        url: 'www.testblog.com',
-        likes: 0
-    }
+describe('making POST requests', () => {
 
-    await api
-        .post('/api/blogs')
-        .send(newBlog)
-        .expect(201)
-        .expect('Content-Type', /application\/json/)
+    let token2
 
-    const response = await api.get('/api/blogs')
+    beforeAll(async () => {
+        await User.deleteMany({})
 
-    const titles = response.body.map(r => r.title)
+        const passwordHash = await bcrypt.hash('sekret', 10)
+        const user = new User({ username: 'root', passwordHash })
 
-    expect(response.body).toHaveLength(helper.blogs.length + 1)
-    expect(titles).toContain(
-        'test blog'
-    )
-})
+        await user.save()
 
-test('making an POST request without likes properties', async () => {
-    newBlog = {
-        title: 'test blog 2 ',
-        author: 'Juan',
-        url: 'www.testblog.com'
-    }
-
-    await api
-        .post('/api/blogs')
-        .send(newBlog)
-        .expect(201)
-        .expect('Content-Type', /application\/json/)
+        const response = await api
+                            .post('/api/login')
+                            .send({ username: 'root', password: 'sekret' })
 
 
-},)
 
-test('making an POST request without title and url', async () => {
-    newBlog = {
+        token2 = response.body.token
+        
+        return token2
+    })
 
-        author: 'Juan'
+    test('making an HTTP POST request to the /api/blogs url creates a new blog post', async () => {
 
-    }
+        newBlog = {
+            title: 'test blog',
+            author: 'Juan',
+            url: 'www.testblog.com',
+            likes: 0
+        }
+        
+        await api
+            .post('/api/blogs')
+            .set('authorization', `bearer ${token2}`)
+            .send(newBlog)
+            .expect(201)
+            .expect('Content-Type', /application\/json/)
 
-    await api
-        .post('/api/blogs')
-        .send(newBlog)
-        .expect(400)
-        .expect('Content-Type', /application\/json/)
+        const response = await api.get('/api/blogs')
 
+        const titles = response.body.map(r => r.title)
 
-},)
+        expect(response.body).toHaveLength(helper.blogs.length + 1)
+        expect(titles).toContain(
+            'test blog'
+        )
+    })
 
-describe('deletion of a note', () => {
-    test('succeeds with status code 204 if id is valid', async () => {
-        const blogsAtStart = await helper.blogsInDb()
-        const blogToDelete = blogsAtStart[0]
+    test('making an HTTP POST request without token is unauthorized', async () => {
+        newBlog = {
+            title: 'test blog',
+            author: 'Juan',
+            url: 'www.testblog.com',
+            likes: 0
+        }
 
         await api
-            .delete(`/api/blogs/${blogToDelete.id}`)
+            .post('/api/blogs')
+            .send(newBlog)
+            .expect(401)
+
+
+
+    })
+
+    test('making an POST request without likes properties', async () => {
+        newBlog = {
+            title: 'test blog 2 ',
+            author: 'Juan',
+            url: 'www.testblog.com'
+        }
+
+        await api
+            .post('/api/blogs')
+            .set('authorization', `bearer ${token2}`)
+            .send(newBlog)
+            .expect(201)
+            .expect('Content-Type', /application\/json/)
+
+
+    },)
+
+    test('making an POST request without title and url', async () => {
+        newBlog = {
+
+            author: 'Juan'
+
+        }
+
+        await api
+            .post('/api/blogs')
+            .set('authorization', `bearer ${token2}`)
+            .send(newBlog)
+            .expect(400)
+            .expect('Content-Type', /application\/json/)
+
+
+    },)
+
+})
+
+
+describe('deletion of a note', () => {
+
+    let token2
+    let newPostedBlog
+
+    beforeAll(async () => {
+        await User.deleteMany({})
+
+        
+    })
+
+    test('succeeds with status code 204 if id is valid', async () => {
+
+        const passwordHash = await bcrypt.hash('sekret', 10)
+        const user = new User({ username: 'root', passwordHash })
+
+        await user.save()
+
+        const response = await api
+                            .post('/api/login')
+                            .send({ username: 'root', password: 'sekret' })
+
+        token2 = response.body.token
+
+        newBlog = {
+            title: 'test blog',
+            author: 'Juan',
+            url: 'www.testblog.com',
+            likes: 0
+        }
+        
+        newPostedBlog = await api
+                                .post('/api/blogs')
+                                .set('authorization', `bearer ${token2}`)
+                                .send(newBlog)
+
+        
+        
+
+        const blogsAtStart = await api.get('/api/blogs')
+        
+        
+        await api
+            .delete(`/api/blogs/${newPostedBlog.body.id}`)
+            .set('authorization', `bearer ${token2}`)
             .expect(204)
 
-        const blogsAtEnd = await helper.blogsInDb()
+        const blogsAtEnd = await api.get('/api/blogs')
 
-        expect(blogsAtEnd).toHaveLength(
-            helper.blogs.length - 1
-        )
+        expect(blogsAtEnd.body).toHaveLength(blogsAtStart.body.length - 1)
 
-        const titles = blogsAtEnd.map(r => r.title)
+        const titles = blogsAtEnd.body.map(r => r.title)
 
-        expect(titles).not.toContain(blogToDelete.title)
+        expect(titles).not.toContain(newPostedBlog.body.title)
     })
 })
 
@@ -206,6 +290,8 @@ describe('when there is initially one user in db', () => {
         expect(usersAtEnd).toEqual(usersAtStart)
     })
 })
+
+
 
 
 afterAll(() => {
